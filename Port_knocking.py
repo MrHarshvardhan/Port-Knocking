@@ -12,26 +12,33 @@ class Knocker:
         self.parse_args(args)
 
     def parse_args(self, args):
-        parser = argparse.ArgumentParser(description='Simple port-knocking client written in python3.')
+        parser = argparse.ArgumentParser(description='Advanced port-knocking client written in python3.')
         parser.add_argument('-t', '--timeout', type=int, default=200, help='Timeout in milliseconds.')
         parser.add_argument('-d', '--delay', type=int, default=200, help='Delay in milliseconds between knocks.')
         parser.add_argument('-v', '--verbose', action='store_true', help='Be verbose.')
+        parser.add_argument('-u', '--udp', action='store_true', help='Use UDP instead of TCP by default.')
         parser.add_argument('hosts', nargs='+', help='Hostnames or IP addresses of the hosts to knock on. Supports IPv6.')
         args = parser.parse_args(args)
         self.timeout = args.timeout / 1000
         self.delay = args.delay / 1000
         self.verbose = args.verbose
+        self.use_udp = args.udp
         self.hosts = args.hosts
 
-    def knock(self, host, port, use_udp):
+    def knock_tcp(self, host, port):
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM if use_udp else socket.SOCK_STREAM)
+            s = socket.create_connection((host, port), timeout=self.timeout)
+            s.close()
+            return True
+        except Exception as e:
+            return False
+
+    def knock_udp(self, host, port):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.settimeout(self.timeout)
             socket_address = (host, port)
-            if use_udp:
-                s.sendto(b'', socket_address)
-            else:
-                s.connect_ex(socket_address)
+            s.sendto(b'', socket_address)
             s.close()
             return True
         except Exception as e:
@@ -45,9 +52,9 @@ class Knocker:
             with open(result_filename, 'w') as result_file:
                 print(f"\nKnocking on {host}...")
                 for port in tqdm(range(1, 65536), desc=f"Progress for {host}"):
-                    success_tcp = self.knock(host, port, False)
-                    success_udp = self.knock(host, port, True)
-                    
+                    success_tcp = self.knock_tcp(host, port)
+                    success_udp = self.knock_udp(host, port)
+
                     result_file.write(f"{host}:{port} - TCP: {'Success' if success_tcp else 'Failed'}, UDP: {'Success' if success_udp else 'Failed'}\n")
 
                     if not success_tcp and self.verbose:
