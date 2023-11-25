@@ -1,71 +1,80 @@
 #!/usr/bin/env python3
 
 import argparse
-from tqdm import tqdm
+import select
 import socket
-import os
 import sys
 import time
 
-class Knocker:
-    def __init__(self, args):
-        self.parse_args(args)
 
-    def parse_args(self, args):
-        parser = argparse.ArgumentParser(description='Advanced port-knocking client written in python3.')
-        parser.add_argument('-t', '--timeout', type=int, default=200, help='Timeout in milliseconds.')
-        parser.add_argument('-d', '--delay', type=int, default=200, help='Delay in milliseconds between knocks.')
-        parser.add_argument('-v', '--verbose', action='store_true', help='Be verbose.')
-        parser.add_argument('-u', '--udp', action='store_true', help='Use UDP instead of TCP by default.')
-        parser.add_argument('hosts', nargs='+', help='Hostnames or IP addresses of the hosts to knock on. Supports IPv6.')
+class Knocker(object):
+    def __init__(self, args: list):
+        self._parse_args(args)
+
+    def _parse_args(self, args: list):
+        parser = argparse.ArgumentParser(description='Simple port-knocking client written in python3.\n'
+                                                     'See more at https://github.com/grongor/knock')
+
+        parser.add_argument('-t', '--timeout', type=int, default=200,
+                            help='How many milliseconds to wait on a hanging connection. Default is 200 ms.')
+        parser.add_argument('-d', '--delay', type=int, default=200,
+                            help='How many milliseconds to wait between each knock. Default is 200 ms.')
+        parser.add_argument('-u', '--udp', help='Use UDP instead of TCP by default.', action='store_true')
+        parser.add_argument('-v', '--verbose', help='Be verbose.', action='store_true')
+        parser.add_argument('host', help='Hostname or IP address of the host to knock on. Supports IPv6.')
+        parser.add_argument('ports', metavar='port[:protocol]', nargs='*',
+                            help='Port(s) to knock on, protocol (tcp, udp) is optional. If not provided, knocks on all ports.')
+
         args = parser.parse_args(args)
         self.timeout = args.timeout / 1000
         self.delay = args.delay / 1000
+        self.default_udp = args.udp
+        self.ports = args.ports
         self.verbose = args.verbose
-        self.use_udp = args.udp
-        self.hosts = args.hosts
 
-    def knock_tcp(self, host, port):
-        try:
-            s = socket.create_connection((host, port), timeout=self.timeout)
+        self.address_family, _, _, _, ip = socket.getaddrinfo(
+            host=args.host,
+            port=None,
+            flags=socket.AI_ADDRCONFIG
+        )[0]
+        self.ip_address = ip[0]
+
+        if not self.ports:
+            # If no specific ports are provided, knock on all ports (65535)
+            self.ports = [str(port) for port in range(1, 65536)]
+
+    def knock(self):
+        last_index = len(self.ports) - 1
+        for i, port in enumerate(self.ports):
+            use_udp = self.default_udp
+            if port.find(':') != -1:
+                port, protocol = port.split(':', 2)
+                if protocol == 'tcp':
+                    use_udp = False
+                elif protocol == 'udp':
+                    use_udp = True
+                else:
+                    error = 'Invalid protocol "{}" given. Allowed values are "tcp" and "udp".'
+                    raise ValueError(error.format(protocol))
+
+            if self.verbose:
+                print('hitting %s %s:%d' % ('udp' if use_udp else 'tcp', self.ip_address, int(port)))
+
+            s = socket.socket(self.address_family, socket.SOCK_DGRAM if use_udp else socket.SOCK_STREAM)
+            s.setblocking(False)
+
+            socket_address = (self.ip_address, int(port))
+            if use_udp:
+                s.sendto(b'', socket_address)
+            else:
+                s.connect_ex(socket_address)
+                select.select([s], [s], [s], self.timeout)
+
             s.close()
-            return True
-        except Exception as e:
-            return False
 
-    def knock_udp(self, host, port):
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.settimeout(self.timeout)
-            socket_address = (host, port)
-            s.sendto(b'', socket_address)
-            s.close()
-            return True
-        except Exception as e:
-            return False
+            if self.delay and i != last_index:
+                time.sleep(self.delay)
 
-    def run(self):
-        script_directory = os.path.dirname(os.path.abspath(__file__))
-
-        for host in self.hosts:
-            result_filename = os.path.join(script_directory, f"knock_results_{host.replace('.', '_')}.txt")
-            with open(result_filename, 'w') as result_file:
-                print(f"\nKnocking on {host}...")
-                for port in tqdm(range(1, 65536), desc=f"Progress for {host}"):
-                    success_tcp = self.knock_tcp(host, port)
-                    success_udp = self.knock_udp(host, port)
-
-                    result_file.write(f"{host}:{port} - TCP: {'Success' if success_tcp else 'Failed'}, UDP: {'Success' if success_udp else 'Failed'}\n")
-
-                    if not success_tcp and self.verbose:
-                        print(f"Failed to knock on {host}:{port} (TCP)")
-
-                    if not success_udp and self.verbose:
-                        print(f"Failed to knock on {host}:{port} (UDP)")
-
-                    if self.delay:
-                        time.sleep(self.delay)
 
 if __name__ == '__main__':
-    knocker = Knocker(sys.argv[1:])
-    knocker.run()
+    Knocker(sys.argv[1:]).knock()
