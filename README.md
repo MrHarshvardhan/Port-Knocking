@@ -18,8 +18,8 @@ This script performs port knocking on all TCP and UDP ports (1 to 65535) for mul
 <host1> <host2> ...: Hostnames or IP addresses to knock on (supports IPv6).
 
 **Example**
-./port-knocking.py -t 300 -d 100 -v 127.0.0.1 127.0.0.2 127.0.0.3
-
+./port-knocking.py -t 200 -d 200 -u example.com
+./port-knocking.py -t 200 -d 200 -u example.com 1234 5678 9090
 This command performs port knocking on all TCP and UDP ports for the specified hosts with a timeout of 300 ms and a delay of 100 ms between knocks.
 
 ## Result
