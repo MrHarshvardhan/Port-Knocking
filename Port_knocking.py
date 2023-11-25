@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 
 import argparse
-import select
 import socket
 import sys
 import time
-
 
 class Knocker(object):
     def __init__(self, args: list):
@@ -43,6 +41,10 @@ class Knocker(object):
             # If no specific ports are provided, knock on all ports (65535)
             self.ports = [str(port) for port in range(1, 65536)]
 
+    def _log_result(self, result):
+        with open("open_ports.txt", "a") as f:
+            f.write(result + '\n')
+
     def knock(self):
         last_index = len(self.ports) - 1
         for i, port in enumerate(self.ports):
@@ -64,13 +66,24 @@ class Knocker(object):
             s.setblocking(False)
 
             socket_address = (self.ip_address, int(port))
-            if use_udp:
-                s.sendto(b'', socket_address)
-            else:
-                s.connect_ex(socket_address)
-                select.select([s], [s], [s], self.timeout)
+            result = f'Port {port} on {self.ip_address} is closed'
+            try:
+                if use_udp:
+                    s.sendto(b'', socket_address)
+                    result = f'Port {port} on {self.ip_address} is open'
+                else:
+                    s.connect_ex(socket_address)
+                    result = f'Port {port} on {self.ip_address} is open'
+            except Exception as e:
+                pass
+            finally:
+                s.close()
 
-            s.close()
+            if self.verbose:
+                print(result)
+
+            if "open" in result:
+                self._log_result(result)
 
             if self.delay and i != last_index:
                 time.sleep(self.delay)
